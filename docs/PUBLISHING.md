@@ -45,11 +45,16 @@ Modrinth（以及 CurseForge）**不提供**「把 GitHub 仓库连上去、之�
 - **§4 版权与转载**：不允许「从别处直接转载」，但 **license-abiding fork 不受此限**；
   上传非自己原创的内容必须**明确署名每一处原始来源**。
   → 我们是 MIT fork，合规前提是把 SlimeKnights 与 AlphaMode 在项目页写明（可直接改写 `ATTRIBUTION.md`）。
-- **§6 生成式 AI（本仓库的实质卡点）**：项目必须如实披露 AI 使用；
-  「代码的实质部分由 AI 产出」时必须勾选站内的 **Contains AI-generated content** 披露项；
-  并且明确规定 **内容主要由 AI 产出时不允许公开发布**。
-  → 本仓库自称 *largely vibed*。这条不是走过场：要么让人类审查/改写占主导后再发，
-  要么先在站上留成 draft/unlisted。**发布决定前先和人类拍板。**
+- **§6 生成式 AI**：这一条里其实有**两条独立规则**，别混成一条看：
+  - §6.1 **披露义务**：当「代码的实质部分由 AI 产出」时，必须勾选站内的
+    **Contains AI-generated content** 披露项。本仓库的移植增量（`mcr/*` 相对上游的 diff）
+    确实是 AI 在人类指导下生成/改写的（`ATTRIBUTION.md` 自己就是这么写的），
+    **所以这一项应当勾上**——它是如实披露，不是自贬。
+  - §6.2 **公开禁令**：只针对「内容**主要或完全**由 AI 产出」的项目。
+    本仓库的主体（绝大多数逻辑代码）是 SlimeKnights 的原作加上 AlphaMode 的 Fabric 适配层，
+    我们的改动是增量，**按代码构成不属于这一条**。
+  - 结论：**披露照勾，公开照发**；要能对审核说清「哪一段是谁写的、我们改了什么」——
+    这正是 `docs/STATUS.md` 的分支地图与 `git diff <上游基点>..mcr/*` 的用处。
 - **§2.2 / §5 描述与元数据**：项目描述**必须有英文版**（除非只面向特定语言）；
   依赖必须填进每个版本的 Dependencies 区；标题里不要塞多余信息。
 
@@ -310,7 +315,47 @@ Modrinth 会**同时看两层**：
 
 ---
 
-## 8. 排错清单
+## 8. 发布顺序：要不要先把 Mantle 弄上去？
+
+**短答：要发的如果是 3.12.1 那条线的移植版，是——先发 Mantle-Fabric。**
+如果只是把现在默认分支 `1.20.1` 上的 3.6.4 构建发上去，技术上不用（它把 Mantle 内嵌了），
+但那个版本跟 Alpha 已经在 Modrinth 上的 Hephaestus 是同一个东西，价值不大。
+
+下面这些不是推测，是仓库现状 + 站上实测：
+
+| 事实 | 出处 |
+|---|---|
+| 默认分支 `1.20.1` 把 Mantle **内嵌**进 jar：`modImplementation(include("slimeknights.mantle:Mantle:..."))`，`mantle_version=1.9.291` | `git show 1.20.1:build.gradle` |
+| 工作分支 `mcr/upstream-3.12.1` 已改为**外置**依赖（去掉了 `include`），`mantle_version=1.11.DEV.ad2e7db0` | 该分支的 `build.gradle` / `gradle.properties` |
+| Modrinth 上的项目 `mantle` 只有 `forge`/`neoforge`（最新 1.11.117），**没有 Fabric 版** | Modrinth API 实测 |
+| 公开可下载的 Fabric 版 Mantle 只到 `1.20.1-1.9.296`（devos maven），而 3.12.1 要求 `[1.11.113,)` | `docs/STATUS.md` |
+| Alpha 的 Hephaestus 在 Modrinth 上是**内嵌** Mantle：jar 内含 `META-INF/jars/Mantle-1.20.1-1.9.291.jar`，所以它的项目页不列 Mantle 依赖 | 下载发布包实测 |
+
+也就是说：mcr 分支产出的 jar，现在**任何 Modrinth 用户都凑不齐前置**——
+`mantle >= 1.11.DEV.*` 在公开渠道无处可下。所以这个布局下顺序只能是
+**先发 Mantle-Fabric，再在 Tinkers 的版本里把 Mantle 标成 required 指向它**。
+
+三条路线，选一条并写进 `docs/STATUS.md`：
+
+| 路线 | 用户要装几个文件 | 代价 |
+|---|---|---|
+| **A. 外置**（mcr 分支现状）：先发 Mantle-Fabric | 2 个（Tinkers + Mantle） | 两个项目都要维护发版；好处是库能独立更新、依赖关系透明 |
+| **B. 内嵌**（默认分支 / Alpha 现状）：只发 Tinkers 一个 jar | 1 个 | 不用建 Mantle 项目；但 Mantle 一更新就得重发 Tinkers，而且别的模组也内嵌 Mantle 时会 mod id 冲突 |
+| C. 两条都发（内嵌版 + 外置版） | 1 或 2 个 | 覆盖面最广，维护成本最高 |
+
+另外两件发之前得想清楚的事：
+
+- **Alpha 的 `hephaestus` 页面还在线上**：<https://modrinth.com/mod/hephaestus>，28.8 万下载，
+  最近一次 1.20.1 版本是 2025-11-15 的 `1.20.1-3.6.4.305`（beta）。
+  你们要发的是它的**延续**（目标 3.12.1），而且 mod id 同为 `tconstruct`（外加 `mantle`）——
+  **同一 MC 版本下两个项目不能共存**。建议发布前跟 Alpha 打个招呼，
+  项目页写明「延续自 Hephaestus，AlphaMode 未参与、未审核、未背书」。
+- **Mantle-Fabric 单独发时，它自己也要过一遍第 1 节**：独立项目页、独立源码链接、
+  同样要写非官方声明与 AI 披露，别只在 Tinkers 那边写。
+
+---
+
+## 9. 排错清单
 
 | 症状 | 原因 / 处理 |
 |---|---|
@@ -322,14 +367,15 @@ Modrinth 会**同时看两层**：
 | Modrinth 列出的依赖跟预期不符 | 先看 `fabric.mod.json` 的 `depends`，再按第 7 节在版本里改 |
 | `./gradlew modrinth` 在本地就上传了 | 想干跑就设 `debugMode = true`，它只打印载荷不上传 |
 | `modrinthSyncBody` 把简介覆盖坏了 | 该任务**不可撤销**，先用 `debugMode` 看一遍；简介内容从 `syncBodyFrom` 来 |
+| 玩家反馈「缺少前置 `mantle`」 | 见第 8 节：外置布局下必须先让 Mantle-Fabric 有公开下载源，或改回内嵌 |
 | 页面内容被举报/下架 | 优先回看 1.2 的 AI 披露与 1.3 的非官方声明是否齐全 |
 
 ---
 
-## 9. 本仓库的落地顺序建议
+## 10. 本仓库的落地顺序建议
 
 1. **先定政策**：1.2 的 AI 条款和 `ATTRIBUTION.md` 的口径过一遍，确认"能不能公开、以什么措辞公开"。
-2. **先发 Mantle-Fabric**（Tinkers 的前置），再发本仓库；两者的依赖关系在站上互指。
+2. **先发 Mantle-Fabric**（Tinkers 的前置），再发本仓库；两者在站上互指。理由与三条路线见第 8 节。
 3. **手工发一个 alpha 验证闭环**：干净实例 + 只装必要前置，能进世界、能开一次合成界面。
 4. **再上自动化**：`modrinth` 块 + `modrinth.yml` + `MODRINTH_TOKEN`，用 tag 触发。
 5. 想要 CurseForge 再考虑换/加 mc-publish，别一上来就三平台同时开。
